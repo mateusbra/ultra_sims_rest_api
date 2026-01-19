@@ -1,0 +1,30 @@
+# Node modules
+node_modules/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build / cache
+dist/
+build/
+.cache/
+
+# Coverage
+coverage/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.sw*
+
+/src/generated/prisma

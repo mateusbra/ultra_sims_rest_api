@@ -122,4 +122,70 @@ app.get("/amostras", async (req: Request, res: Response) => {
     data: amostras,
   });
 });
+
+app.patch("/amostras/:codigo/status", async (req: Request, res: Response) => {
+  const { codigo } = req.params;
+  const { novoStatus } = req.body;
+
+  // 1. Validar body
+  if (!novoStatus) {
+    return res.status(400).json({ error: "novoStatus é obrigatório" });
+  }
+
+  if (!(novoStatus in StatusAmostra)) {
+    return res.status(400).json({ error: "Status inválido" });
+  }
+
+  // 2. Buscar amostra
+  const amostra = await prisma.amostra.findUnique({
+    where: { codigo: codigo as string },
+  });
+  if (!amostra) {
+    return res.status(404).json({ error: "Amostra não encontrada" });
+  }
+  // 3. Atualizar status
+  let transicaoValida = false;
+
+  if (amostra.status === StatusAmostra.pendente) {
+    transicaoValida = novoStatus === StatusAmostra.em_analise;
+  }
+  if (amostra.status === StatusAmostra.em_analise) {
+    transicaoValida = novoStatus === StatusAmostra.concluida;
+  }
+  if (amostra.status === StatusAmostra.concluida) {
+    transicaoValida =
+      novoStatus === StatusAmostra.aprovada ||
+      novoStatus === StatusAmostra.rejeitada;
+  }
+  if (
+    amostra.status === StatusAmostra.aprovada ||
+    amostra.status === StatusAmostra.rejeitada
+  ) {
+    transicaoValida = false;
+  }
+  if (!transicaoValida) {
+    return res.status(400).json({
+      error: `Transição inválida de ${amostra.status} para ${novoStatus}`,
+    });
+  }
+  const amostraAtualizada = await prisma.$transaction(async (tx) => {
+    const updated = await tx.amostra.update({
+      where: { codigo: codigo as string },
+      data: { status: novoStatus as StatusAmostra },
+    });
+
+    await tx.historicoStatus.create({
+      data: {
+        amostraId: amostra.id,
+        statusAnterior: amostra.status,
+        novoStatus: novoStatus,
+      },
+    });
+
+    return updated;
+  });
+
+  return res.status(200).json(amostraAtualizada);
+
+});
 export default app;

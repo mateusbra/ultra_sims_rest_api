@@ -1,6 +1,5 @@
 import { Amostra, StatusAmostra } from "@prisma/client";
 import { AmostraRepository } from "./infrastructure/repository/amostraRepository";
-import prisma from "./lib/prisma";
 export async function criarAmostra(codigo: string, tipoAnalise: string, dataColeta: Date) {
     if (!codigo || !tipoAnalise || !dataColeta) {
         throw new Error("codigo, tipoAnalise e dataColeta são obrigatórios");
@@ -70,7 +69,7 @@ export async function obterAmostras(params: ObterAmostrasParams) {
             skip,
             take: limitFinal,
         }),
-        amostraRepository.contar({ where }),
+        amostraRepository.contar(where),
     ]);
     return [pageFinal, limitFinal, total, amostras];
 }

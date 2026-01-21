@@ -56,6 +56,7 @@ describe("PATCH /amostras/:codigo/status", () => {
     expect(response3.body.status).toBe(StatusAmostra.aprovada);
   });
 });
+
 describe("PATCH /amostras/:codigo/status - transição inválida", () => {
   it("deve retornar erro para transição inválida de status", async () => {
     // Primeiro, criar uma amostra para atualizar
@@ -77,6 +78,7 @@ describe("PATCH /amostras/:codigo/status - transição inválida", () => {
     expect(response.status).toBe(400);
   });
 });
+
 describe("PATCH /amostras/:codigo/status - amostra não encontrada", () => {
   it("deve retornar erro quando a amostra não for encontrada", async () => {
     const response = await request(app)
@@ -84,6 +86,6 @@ describe("PATCH /amostras/:codigo/status - amostra não encontrada", () => {
       .send({
         novoStatus: StatusAmostra.em_analise,
       });
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(404);
   });
 });

@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import { atualizarStatusAmostra, criarAmostra, obterAmostras } from "../../service";
 import { StatusAmostra } from "@prisma/client";
 
@@ -33,21 +33,14 @@ const router = Router();
  *       409:
  *         description: Código duplicado
  */
-router.post("/", async (req: Request, res: Response) => {
+router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   const { codigo, tipoAnalise, dataColeta } = req.body;
 
   try {
     const amostra = await criarAmostra(codigo as string, tipoAnalise as string, dataColeta as Date);
     return res.status(201).json(amostra);
   } catch (error: any) {
-    if (error.code === "P2002") {
-      return res.status(409).json({
-        error: "Já existe uma amostra com esse código",
-      });
-    }
-    return res.status(400).json({
-      error: "Erro interno ao criar amostra",
-    });
+    return next(error);
   }
 });
 
@@ -117,7 +110,7 @@ router.post("/", async (req: Request, res: Response) => {
  *       400:
  *         description: Parâmetros inválidos
  */
-router.get("/", async (req: Request, res: Response) => {
+router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   const {
     status,
     codigo,
@@ -128,23 +121,27 @@ router.get("/", async (req: Request, res: Response) => {
     page,
     limit,
   } = req.query;
+  try {
+    const [pageFinal, limitFinal, total, amostras] = await obterAmostras({
+      status: status as string,
+      codigo: codigo as string,
+      tipoAnalise: tipoAnalise as string,
+      dataInicio: dataInicio as string,
+      dataFim: dataFim as string,
+      orderBy: orderBy as string,
+      page: page ? parseInt(page as string, 10) : undefined,
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+    });
 
-  const [pageFinal, limitFinal, total, amostras] = await obterAmostras({
-    status: status as string,
-    codigo: codigo as string,
-    tipoAnalise: tipoAnalise as string,
-    dataInicio: dataInicio as string,
-    dataFim: dataFim as string,
-    orderBy: orderBy as string,
-    page: page ? parseInt(page as string, 10) : undefined,
-    limit: limit ? parseInt(limit as string, 10) : undefined,
-  });
-  return res.status(200).json({
-    page: pageFinal,
-    limit: limitFinal,
-    total,
-    data: amostras,
-  });
+    return res.status(200).json({
+      page: pageFinal,
+      limit: limitFinal,
+      total,
+      data: amostras,
+    });
+  } catch (error: any) {
+    return next(error);
+  }
 });
 
 /**
@@ -189,7 +186,7 @@ router.get("/", async (req: Request, res: Response) => {
  *       400:
  *         description: Transição inválida ou dados inválidos
  */
-router.patch(":codigo/status", async (req: Request, res: Response) => {
+router.patch("/:codigo/status", async (req: Request, res: Response, next: NextFunction) => {
   const { codigo } = req.params;
   const { novoStatus } = req.body;
 
@@ -197,7 +194,7 @@ router.patch(":codigo/status", async (req: Request, res: Response) => {
     const amostraAtualizada = await atualizarStatusAmostra(codigo as string, novoStatus as StatusAmostra);
     return res.status(200).json(amostraAtualizada);
   } catch (error: any) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 
 });

@@ -1,21 +1,22 @@
 import { Amostra, StatusAmostra } from "@prisma/client";
 import { AmostraRepository } from "./infrastructure/repository/amostraRepository";
+import { AppError } from "./errors/AppError";
+
 export async function criarAmostra(codigo: string, tipoAnalise: string, dataColeta: Date) {
     if (!codigo || !tipoAnalise || !dataColeta) {
-        throw new Error("codigo, tipoAnalise e dataColeta são obrigatórios");
+        throw new AppError("codigo, tipoAnalise e dataColeta são obrigatórios");
     }
     const data = new Date(dataColeta);
     const hoje = new Date();
     if (isNaN(data.getTime())) {
-        throw new Error("data coleta inválida");
+        throw new AppError("dataColeta inválida");
     }
 
     if (data > hoje) {
-        throw new Error("dataColeta não pode ser futura");
+        throw new AppError("dataColeta não pode ser futura");
     }
 
     const amostraRepository = new AmostraRepository();
-
     const amostra = await amostraRepository.criar(codigo, tipoAnalise, data);
     return amostra;
 }
@@ -75,21 +76,17 @@ export async function obterAmostras(params: ObterAmostrasParams) {
 }
 export async function atualizarStatusAmostra(codigo: string, novoStatus: StatusAmostra) {
     if (!novoStatus) {
-        throw new Error("novoStatus é obrigatório");
+        throw new AppError("novoStatus é obrigatório");
     }
-    // return res.status(400).json({ error: "novoStatus é obrigatório" });
-
 
     if (!(novoStatus in StatusAmostra)) {
-        throw new Error("Status inválido");
-        //return res.status(400).json({ error: "Status inválido" });
+        throw new AppError("Status inválido");
     }
 
     const amostraRepository = new AmostraRepository();
     const amostra = await amostraRepository.obterPorCodigo(codigo) as Amostra;
     if (!amostra) {
-        throw new Error("Amostra não encontrada");
-        //return res.status(404).json({ error: "Amostra não encontrada" });
+        throw new AppError("Amostra não encontrada", 404);
     }
 
     let transicaoValida = false;
@@ -112,10 +109,7 @@ export async function atualizarStatusAmostra(codigo: string, novoStatus: StatusA
         transicaoValida = false;
     }
     if (!transicaoValida) {
-        throw new Error(`Transição inválida de ${amostra.status} para ${novoStatus}`);
-        /*return res.status(400).json({
-          error: `Transição inválida de ${amostra.status} para ${novoStatus}`,
-        });*/
+        throw new AppError(`Transição inválida de ${amostra.status} para ${novoStatus}`);
     }
 
     const amostraAtualizada = await amostraRepository.atualizarStatus(codigo, novoStatus, amostra);

@@ -17,7 +17,6 @@ export class AmostraRepository {
             },
         });
     }
-
     async obter(params: ObterAmostrasParams) {
         return prisma.amostra.findMany(params);
     }

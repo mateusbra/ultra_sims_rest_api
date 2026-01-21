@@ -12,6 +12,7 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+.env.test
 
 # Build / cache
 dist/
@@ -28,3 +29,5 @@ coverage/
 *.sw*
 
 /src/generated/prisma
+dev.db
+test.db

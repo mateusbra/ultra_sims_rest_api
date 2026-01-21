@@ -1,37 +1,47 @@
 import express, { Request, Response } from "express";
-import prisma from "./lib/prisma";
 import { StatusAmostra } from "@prisma/client";
+import { atualizarStatusAmostra, criarAmostra, obterAmostras } from "./service";
+import SwaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./docs/swagger";
 
 const app = express();
 
 app.use(express.json());
+app.use("/docs", SwaggerUi.serve, SwaggerUi.setup(swaggerSpec));
 
+/**
+ * @swagger
+ * /amostras:
+ *   post:
+ *     summary: Cadastrar uma nova amostra
+ *     tags: [Amostras]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [codigo, tipoAnalise, dataColeta]
+ *             properties:
+ *               codigo:
+ *                 type: string
+ *               tipoAnalise:
+ *                 type: string
+ *               dataColeta:
+ *                 type: string
+ *                 format: date
+ *     responses:
+ *       201:
+ *         description: Amostra criada com sucesso
+ *       400:
+ *         description: Dados inválidos
+ *       409:
+ *         description: Código duplicado
+ */
 app.post("/amostras", async (req: Request, res: Response) => {
   const { codigo, tipoAnalise, dataColeta } = req.body;
-  if (!codigo || !tipoAnalise || !dataColeta) {
-    return res.status(400).json({
-      error: "codigo, tipoAnalise e dataColeta são obrigatórios",
-    });
-  }
-  const data = new Date(dataColeta);
-  const hoje = new Date();
-  if (isNaN(data.getTime())) {
-    res.status(400).json({ error: "dataColeta inválida" });
-  }
-
-  if (data > hoje) {
-    return res.status(400).json({ error: "dataColeta não pode ser futura" });
-  }
-
   try {
-    const amostra = await prisma.amostra.create({
-      data: {
-        codigo,
-        tipoAnalise,
-        dataColeta: data,
-        status: StatusAmostra.pendente,
-      },
-    });
+    const amostra = await criarAmostra(codigo as string, tipoAnalise as string, dataColeta as Date);
     return res.status(201).json(amostra);
   } catch (error: any) {
     if (error.code === "P2002") {
@@ -39,31 +49,35 @@ app.post("/amostras", async (req: Request, res: Response) => {
         error: "Já existe uma amostra com esse código",
       });
     }
-
-    return res.status(500).json({
+    return res.status(400).json({
       error: "Erro interno ao criar amostra",
     });
   }
 });
 
-app.get("/health", async (req: Request, res: Response) => {
-  try {
-    const totalAmostras = await prisma.amostra.count();
-
-    return res.json({
-      status: "ok",
-      database: "connected",
-      totalAmostras,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      status: "error",
-      database: "disconnected",
-      error: "Erro ao conectar no banco",
-    });
-  }
-});
-
+/**
+ * @swagger
+ * /amostras:
+ *   get:
+ *     summary: Listar amostras com filtros e paginação
+ *     tags: [Amostras]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: codigo
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Lista de amostras
+ */
 app.get("/amostras", async (req: Request, res: Response) => {
   const {
     status,
@@ -76,46 +90,17 @@ app.get("/amostras", async (req: Request, res: Response) => {
     limit,
   } = req.query;
 
-  const where: any = {};
-
-  if (status) where.status = status as StatusAmostra;
-  if (codigo) where.codigo = codigo as string;
-  if (tipoAnalise) where.tipoAnalise = tipoAnalise as string;
-
-  if (dataInicio || dataFim) {
-    where.dataColeta = {};
-
-    if (dataInicio) {
-      where.dataColeta.gte = new Date(dataInicio as string);
-    }
-
-    if (dataFim) {
-      where.dataColeta.lte = new Date(dataFim as string);
-    }
-  }
-
-  let order: any = { dataColeta: "desc" };
-
-  if (orderBy === "codigo") order = { codigo: "asc" };
-  if (orderBy === "status") order = { status: "asc" };
-
-  const pageNumber = Number(page);
-  const limitNumber = Number(limit);
-
-  const pageFinal = pageNumber > 0 ? pageNumber : 1;
-  const limitFinal = limitNumber > 0 ? limitNumber : 5;
-
-  const skip = (pageFinal - 1) * limitFinal;
-  const [amostras, total] = await Promise.all([
-    prisma.amostra.findMany({
-      where,
-      orderBy: order,
-      skip,
-      take: limitFinal,
-    }),
-    prisma.amostra.count({ where }),
-  ]);
-  return res.json({
+  const [pageFinal, limitFinal, total, amostras] = await obterAmostras({
+    status: status as string,
+    codigo: codigo as string,
+    tipoAnalise: tipoAnalise as string,
+    dataInicio: dataInicio as string,
+    dataFim: dataFim as string,
+    orderBy: orderBy as string,
+    page: page ? parseInt(page as string, 10) : undefined,
+    limit: limit ? parseInt(limit as string, 10) : undefined,
+  });
+  return res.status(200).json({
     page: pageFinal,
     limit: limitFinal,
     total,
@@ -123,69 +108,58 @@ app.get("/amostras", async (req: Request, res: Response) => {
   });
 });
 
+/**
+ * @swagger
+ * /amostras/{codigo}/status:
+ *   patch:
+ *     summary: Atualiza o status de uma amostra
+ *     description: >
+ *       Atualiza o status de uma amostra seguindo o fluxo:
+ *       pendente → em_analise → concluida → aprovada/rejeitada
+ *     tags:
+ *       - Amostras
+ *     parameters:
+ *       - in: path
+ *         name: codigo
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Código único da amostra
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - novoStatus
+ *             properties:
+ *               novoStatus:
+ *                 type: string
+ *                 enum:
+ *                   - pendente
+ *                   - em_analise
+ *                   - concluida
+ *                   - aprovada
+ *                   - rejeitada
+ *     responses:
+ *       200:
+ *         description: Status atualizado com sucesso
+ *         content:
+ *           application/json:
+ *       400:
+ *         description: Transição inválida ou dados inválidos
+ */
 app.patch("/amostras/:codigo/status", async (req: Request, res: Response) => {
   const { codigo } = req.params;
   const { novoStatus } = req.body;
 
-  // 1. Validar body
-  if (!novoStatus) {
-    return res.status(400).json({ error: "novoStatus é obrigatório" });
+  try {
+    const amostraAtualizada = await atualizarStatusAmostra(codigo as string, novoStatus as StatusAmostra);
+    return res.status(200).json(amostraAtualizada);
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message });
   }
-
-  if (!(novoStatus in StatusAmostra)) {
-    return res.status(400).json({ error: "Status inválido" });
-  }
-
-  // 2. Buscar amostra
-  const amostra = await prisma.amostra.findUnique({
-    where: { codigo: codigo as string },
-  });
-  if (!amostra) {
-    return res.status(404).json({ error: "Amostra não encontrada" });
-  }
-  // 3. Atualizar status
-  let transicaoValida = false;
-
-  if (amostra.status === StatusAmostra.pendente) {
-    transicaoValida = novoStatus === StatusAmostra.em_analise;
-  }
-  if (amostra.status === StatusAmostra.em_analise) {
-    transicaoValida = novoStatus === StatusAmostra.concluida;
-  }
-  if (amostra.status === StatusAmostra.concluida) {
-    transicaoValida =
-      novoStatus === StatusAmostra.aprovada ||
-      novoStatus === StatusAmostra.rejeitada;
-  }
-  if (
-    amostra.status === StatusAmostra.aprovada ||
-    amostra.status === StatusAmostra.rejeitada
-  ) {
-    transicaoValida = false;
-  }
-  if (!transicaoValida) {
-    return res.status(400).json({
-      error: `Transição inválida de ${amostra.status} para ${novoStatus}`,
-    });
-  }
-  const amostraAtualizada = await prisma.$transaction(async (tx) => {
-    const updated = await tx.amostra.update({
-      where: { codigo: codigo as string },
-      data: { status: novoStatus as StatusAmostra },
-    });
-
-    await tx.historicoStatus.create({
-      data: {
-        amostraId: amostra.id,
-        statusAnterior: amostra.status,
-        novoStatus: novoStatus,
-      },
-    });
-
-    return updated;
-  });
-
-  return res.status(200).json(amostraAtualizada);
 
 });
 export default app;
